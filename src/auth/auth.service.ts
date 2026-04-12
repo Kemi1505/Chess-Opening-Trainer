@@ -6,6 +6,8 @@ import { LoginUserDto } from './dto/login-user.dto';
 import { JwtService } from '@nestjs/jwt';
 import { Response } from 'express';
 import { cookiesOptions } from './cookies-options';
+//import { AuthMethod} from 'prisma/schema.prisma';
+
 @Injectable()
 export class AuthService {
     constructor(
@@ -98,17 +100,39 @@ export class AuthService {
 
     }
 
-    async logout(res: Response, accessToken: string, refreshToken: string){
+    async logout(res: Response){
         //clear cookie
-        res.cookie('Authentication-AcesssToken', accessToken, { 
-            ...cookiesOptions
-        });
-        res.cookie('Authentication-RefreshToken', refreshToken, { 
-            ...cookiesOptions
-        });
+        res.clearCookie('Authentication-AcesssToken',cookiesOptions);
+        res.clearCookie('Authentication-RefreshToken', cookiesOptions);
         //return log out message
         return{
-            message: "logged out successfully"
+            message: "Logged out successfully"
         }
     }
+
+    async validateGoogleUser(details: Partial<RegisterUserDto>){
+          let user = await this.prisma.user.findUnique({where: {email: details.email}})
+          
+          
+  }
+
+  async validateOAuthLogin(details: Partial<RegisterUserDto>) {
+    // 1. Check if user exists in DB.
+    let user = await this.prisma.user.findUnique({where: {email: details.email}}) 
+    // 2. If not, create them.
+    if(!user){
+        user = await this.prisma.user.create({
+            data: {
+                username: details.username,
+                email: details.email,
+                password: ''
+            },
+            
+        })
+    }
+    const payload = { email: details.email, username: details.username };
+    return {
+      access_token: this.jwtService.sign(payload),
+    };
+  }
 }
