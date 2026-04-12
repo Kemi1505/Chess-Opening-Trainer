@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterUserDto } from './dto/register-user.dto';
 import * as bcrypt from 'bcrypt'
 import { LoginUserDto } from './dto/login-user.dto';
 import { JwtService } from '@nestjs/jwt';
-
+import { Response } from 'express';
+import { cookiesOptions } from './cookies-options';
 @Injectable()
 export class AuthService {
     constructor(
@@ -40,12 +41,10 @@ export class AuthService {
         })
     }
 
-    async login(loginUser: LoginUserDto){
-        //validate using dto
+    async login(loginUser: LoginUserDto, res: Response){
         const {email, password} = loginUser;
         //check if email in database
         const user = await this.prisma.user.findUnique({where: {email}})
-        // if not(invalid email/password)
         if(!user){
             throw new BadRequestException('Invalid Email or Password')
         }
@@ -54,19 +53,24 @@ export class AuthService {
         if(!checkPassword){
             throw new BadRequestException('Invalid Email or Password')
         }
-
-        //const payload = [email. id]
         const payload = {
             sub: user.id,
-            email: user.email
+            email: user.email,
+            username: user.username
         }
-        //access= jwtservice sign (payload, date + 3 days)
-        const accessToken = this.jwtService.signAsync(payload)
-        const refreshToken = this.jwtService.signAsync(payload)
-        //refresh= jwtservice sign (payload, date + 1hr)
+        //generate tokens
+        const accessToken = await this.jwtService.signAsync(payload)
+        const refreshToken = this.jwtService.signAsync(payload, {expiresIn: '3d'})
 
         //setcookies
-        //return (log in, access, refresh)
+        res.cookie('Authentication-AcesssToken', accessToken, { 
+            ...cookiesOptions, 
+            maxAge: 1000 * 60 * 60 * 3 // 3 hours in milliseconds
+        });
+        res.cookie('Authentication-RefreshToken', refreshToken, { 
+            ...cookiesOptions, 
+            maxAge: 1000 * 60 * 60 * 24 * 3 // 3 days in milliseconds
+        });
         return({
             message: 'Log in Successful',
             username: user.username,
@@ -75,16 +79,36 @@ export class AuthService {
         })
     }
 
-    async refresh(){
-        //body: refresh token
-        //verify token, jwtservice.verify
-        //if invalid = error
-        //find user using the id in the payload {where id: payload.sub}
-        // generate accesstoken & refresh token
+    async refresh(refreshToken: string){
+        try{
+            const payload = this.jwtService.verify(refreshToken)
+            const id = payload.sub
+            const user = this.prisma.user.findUnique({where: {id}})
+            const accessToken = await this.jwtService.signAsync(user)
+            const refreshToken2 = this.jwtService.signAsync(user, {expiresIn: '3d'})
+
+            return {
+                accessToken,
+                refreshToken2
+            }
+        }
+        catch(error){
+            throw new UnauthorizedException ('Invalid Token')
+        }
+
     }
 
-    async logout(){
+    async logout(res: Response, accessToken: string, refreshToken: string){
         //clear cookie
+        res.cookie('Authentication-AcesssToken', accessToken, { 
+            ...cookiesOptions
+        });
+        res.cookie('Authentication-RefreshToken', refreshToken, { 
+            ...cookiesOptions
+        });
         //return log out message
+        return{
+            message: "logged out successfully"
+        }
     }
 }

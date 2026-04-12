@@ -7,7 +7,7 @@ import { JwtModule } from '@nestjs/jwt';
   imports: [JwtModule.register({
       secret: 'kemi-chess-secret-key',
       signOptions: { 
-        expiresIn: '3d'
+        expiresIn: '3h'
       },
     }),
   ],
