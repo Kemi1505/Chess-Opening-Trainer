@@ -6,12 +6,8 @@ import { LoginUserDto } from './dto/login-user.dto';
 import { JwtService } from '@nestjs/jwt';
 import { Response } from 'express';
 import { cookiesOptions } from './cookies-options';
-import { Payload } from '@prisma/client/runtime/library';
-import { AuthMethod, UserModel } from './types/user-type';
-import { PartialGraphHost } from '@nestjs/core';
-import { use } from 'passport';
+import { UserModel } from './types/user-type';
 import { ConfigService } from '@nestjs/config';
-//import { AuthMethod} from 'prisma/schema.prisma';
 
 @Injectable()
 export class AuthService {
@@ -61,16 +57,8 @@ export class AuthService {
         if(!checkPassword){
             throw new BadRequestException('Invalid Email or Password')
         }
-        const payload = {
-            sub: user.id,
-            email: user.email,
-            username: user.username
-        }
         //generate tokens
-        const accessToken = await this.jwtService.signAsync(payload)
-        const refreshToken = await this.jwtService.signAsync(payload, {expiresIn: '3d'})
-
-        
+        const {accessToken, refreshToken} = await this.generateTokens(user)
 
         await this.prisma.refreshToken.create({
             data: {
@@ -201,6 +189,12 @@ export class AuthService {
         ...cookiesOptions, 
         maxAge: 1000 * 60 * 60 * 24 * 3 // 3 days in milliseconds
     });
+    await this.prisma.refreshToken.create({
+            data: {
+                userId: user.id,
+                hashedToken: refreshToken,
+            }
+        })
     return {
       accessToken,
       refreshToken
