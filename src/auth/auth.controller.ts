@@ -24,26 +24,34 @@ export class AuthController {
 
   @Post('logout')
   async logout(
-    @Res({ passthrough: true }) res: Response
+    @Res({ passthrough: true }) res: Response,
+    @Body('refreshToken') refreshToken: string
   ) {
-    return this.authService.logout(res)
+    return this.authService.logout(res, refreshToken)
+  }
+
+  @Post('refresh')
+  async refresh(@Body('refreshToken') refreshToken: string){
+    return await this.authService.refresh(refreshToken)
   }
 
   @Get('google/login')
     @UseGuards(GoogleAuthGuard)
     handleLogin() {
         return {
-            msg: 'Redirecting to google...'}
+            message: 'Redirecting to google...'}
     }
 
     @Get('google/callback')
     @UseGuards(GoogleAuthGuard)
-    async handleredirect(@Req() req, @Res() response: Response) {
-        const jwti = await this.authService.validateOAuthLogin(req.user)  
+    async handleredirect(
+      @Req() req, 
+      @Res({ passthrough: true }) res: Response) {
+        const tokens = await this.authService.validateOAuthLogin(req.user, res)  
       
         return {
-            msg: 'Login',
-            jwti,
+            message: 'Login Successful',
+            tokens,
         }
     }
 
