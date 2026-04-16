@@ -44,3 +44,11 @@ model OpeningMoves {
   name      String
   pgn_moves String @unique
 }
+
+model UserGame {
+  id        String   @id @default(uuid())
+  username  String
+  platform  String
+  pgn       String
+  createdAt DateTime @default(now())
+}
