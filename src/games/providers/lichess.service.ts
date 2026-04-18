@@ -2,18 +2,20 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../../prisma/prisma.service';
 import { firstValueFrom } from 'rxjs';
+import { ChessdotcomService } from './chessdotcom.service';
+
 
 @Injectable()
 export class ChessService {
   constructor(
     private http: HttpService,
     private prisma: PrismaService,
+    private chess: ChessdotcomService
   ) {}
 
   //  Fetch from Chess.com
   async fetchChessComGames(username: string) {
     try {
-      // get archives (months)
       const archivesRes = await firstValueFrom(
         this.http.get(
           `https://api.chess.com/pub/player/${username}/games/archives`,
@@ -25,8 +27,6 @@ export class ChessService {
       );
 
       const archives: string[] = archivesRes.data.archives;
-
-      // get games from each month
       const allGames: any[] = [];
 
       for (const url of archives) {
@@ -40,14 +40,19 @@ export class ChessService {
         allGames.push(...res.data.games);
       }
 
-      const allGames2 = []
+      const formatted = [];
 
-      // extract PGN
-      const formatted = allGames.map((game) => ({
-        username,
-        platform: 'chesscom',
-        pgn: game.pgn,
-      }));
+      for (const game of allGames) {
+        const opening = await this.chess.matchOpening(game.pgn);
+
+        formatted.push({
+          username,
+          platform: 'chesscom',
+          pgn: game.pgn,
+          openingName: opening?.name || null,
+          ecoCode: opening?.eco_code || null,
+        });
+      }
 
       await this.prisma.userGame.createMany({
         data: formatted,
