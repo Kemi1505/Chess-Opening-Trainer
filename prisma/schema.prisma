@@ -52,5 +52,7 @@ model UserGame {
   pgn       String
   openingName String?
   ecoCode     String?
+  result      String?  
+  outcome     String?  
   createdAt DateTime @default(now())
 }

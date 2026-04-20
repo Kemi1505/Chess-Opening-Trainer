@@ -45,12 +45,20 @@ export class ChessService {
       for (const game of allGames) {
         const opening = await this.chess.matchOpening(game.pgn);
 
+        const result = extractResult(game.pgn);
+        const color = getPlayerColor(game.pgn, username);
+        const outcome = getOutcome(result, color);
+
+        console.log({ result, color, outcome });
+
         formatted.push({
           username,
           platform: 'chesscom',
           pgn: game.pgn,
           openingName: opening?.name || null,
           ecoCode: opening?.eco_code || null,
+          result,
+          outcome,
         });
       }
 
@@ -65,6 +73,36 @@ export class ChessService {
         return error
     }
   }
+
+  // Get loss stats
+  async getLossStats(username: string) {
+  const stats = await this.prisma.userGame.groupBy({
+    by: ['openingName'],
+    where: {
+      username,
+      outcome: 'loss',
+      openingName: {
+        not: null,
+      },
+    },
+    _count: {
+      openingName: true,
+    },
+  });
+
+  const data = await this.prisma.userGame.findMany({
+    where: { username },
+  });
+
+  console.log(data);
+
+  
+
+  return stats.map((s) => ({
+    opening: s.openingName,
+    losses: s._count.openingName,
+  }));
+}
 
   // Fetch from Lichess
   async fetchLichessGames(username: string) {
@@ -104,4 +142,45 @@ export class ChessService {
       return error
     }
   }
+
+}
+
+
+function extractResult(pgn: string): string | null {
+  if (pgn.includes('1-0')) return '1-0';
+  if (pgn.includes('0-1')) return '0-1';
+  if (pgn.includes('1/2-1/2')) return '1/2-1/2';
+  return null;
+}
+
+function getPlayerColor(pgn: string, username: string): 'white' | 'black' | null {
+  const whiteMatch = pgn.match(/\[White "([^"]+)"\]/);
+  const blackMatch = pgn.match(/\[Black "([^"]+)"\]/);
+
+  const white = whiteMatch?.[1]?.toLowerCase();
+  const black = blackMatch?.[1]?.toLowerCase();
+
+  if (white === username.toLowerCase()) return 'white';
+  if (black === username.toLowerCase()) return 'black';
+
+  return null;
+}
+
+function getOutcome(
+  result: string | null,
+  color: 'white' | 'black' | null
+): 'win' | 'loss' | 'draw' | null {
+  if (!result || !color) return null;
+
+  if (result === '1/2-1/2') return 'draw';
+
+  if (result === '1-0') {
+    return color === 'white' ? 'win' : 'loss';
+  }
+
+  if (result === '0-1') {
+    return color === 'black' ? 'win' : 'loss';
+  }
+
+  return null;
 }

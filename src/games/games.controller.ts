@@ -1,4 +1,4 @@
-import { Controller, Post, Body} from '@nestjs/common';
+import { Controller, Post, Body, Get, Param} from '@nestjs/common';
 import { ChessdotcomService } from './providers/chessdotcom.service';
 import { ChessService } from './providers/lichess.service';
     
@@ -22,4 +22,8 @@ export class GamesController {
     getChessCom(@Body('username') username: string) {
         return this.chessService2.fetchChessComGames(username);
   }
+    @Get('stats/:username')
+    getStats(@Param('username') username: string) {
+    return this.chessService2.getLossStats(username);
+}
 }
