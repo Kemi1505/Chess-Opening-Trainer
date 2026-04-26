@@ -1,120 +1,255 @@
-import { Injectable } from '@nestjs/common';
-import { ChessService } from './lichess.service';
-import { PrismaService } from '../../prisma/prisma.service';
-
-type OpeningStats = {
-  opening: string;
-  losses: number;
-  totalGames: number;
-  lastPlayed: Date;
-};
+import { Injectable } from '@nestjs/common'
+import { PrismaService } from '../../prisma/prisma.service'
 
 @Injectable()
-export class InsightService {
-    constructor(
-        private Chess: ChessService,
-        private readonly prisma: PrismaService){}
+export class InsightsService {
+  constructor(private prisma: PrismaService) {}
 
-    classifyOpening(stats: OpeningStats) {
-    const lossRate = stats.losses / stats.totalGames;
+  async getSummary(username: string): Promise<InsightSummary> {
 
-    const daysSinceLastPlayed =
-      (Date.now() - new Date(stats.lastPlayed).getTime()) /
-      (1000 * 60 * 60 * 24);
+    const games = await this.prisma.userGame.findMany({
+      where: {
+        username,
+        openingName: { not: null },
+      },
+    })
 
-    // Critical
-    if (lossRate > 0.6) {
-      return 'critical';
+    if (games.length === 0) {
+      return {
+        todaysFocus: 'No games analysed yet. Import your games to get started.',
+        weeklyPlan: [],
+        openingCards: [],
+      }
     }
 
-    // Decaying
-    if (daysSinceLastPlayed > 7) {
-      return 'decaying';
-    }
+    // Group games by opening and calculate stats
+    const openingMap = new Map
+      string,
+      {
+        ecoCode: string
+        losses: number
+        total: number
+        lastPlayedAt: Date
+      }
+    >()
 
-    // Healthy
-    return 'healthy';
-  }
-
-  async getUserOpeningStats(username: string) {
-  const games = await this.prisma.userGame.findMany({
-    where: { username, openingName: { not: null } },
-  });
-
-  const map = new Map<string, OpeningStats>();
-
-  for (const game of games) {
-    const key = game.openingName!;
-
-    if (!map.has(key)) {
-      map.set(key, {
-        opening: key,
+    for (const game of games) {
+      const key = game.openingName!
+      const existing = openingMap.get(key) ?? {
+        ecoCode: game.ecoCode ?? '',
         losses: 0,
-        totalGames: 0,
-        lastPlayed: game.createdAt,
-      });
+        total: 0,
+        lastPlayedAt: game.createdAt,
+      }
+
+      existing.total++
+      if (game.outcome === 'loss') existing.losses++
+
+      // Track most recent game for this opening
+      if (game.createdAt > existing.lastPlayedAt) {
+        existing.lastPlayedAt = game.createdAt
+      }
+
+      openingMap.set(key, existing)
     }
 
-    const entry = map.get(key)!;
+    // Build opening cards by running rules against each opening
+    const openingCards: OpeningCard[] = []
 
-    entry.totalGames += 1;
+    for (const [openingName, stats] of openingMap.entries()) {
+      // Skip openings with too few games
+      if (stats.total < 5) continue
 
-    if (game.outcome === 'loss') {
-      entry.losses += 1;
+      const lossRate = stats.losses / stats.total
+      const daysSinceLastPractice = this.getDaysSince(stats.lastPlayedAt)
+
+      if (isCritical(lossRate, stats.total)) {
+        openingCards.push(
+          buildCriticalCard(
+            openingName,
+            stats.ecoCode,
+            stats.losses,
+            stats.total,
+            lossRate,
+            daysSinceLastPractice,
+          ),
+        )
+      } else if (isDecaying(daysSinceLastPractice, lossRate)) {
+        openingCards.push(
+          buildDecayingCard(
+            openingName,
+            stats.ecoCode,
+            stats.losses,
+            stats.total,
+            lossRate,
+            daysSinceLastPractice!,
+          ),
+        )
+      } else {
+        openingCards.push(
+          buildHealthyCard(
+            openingName,
+            stats.ecoCode,
+            stats.losses,
+            stats.total,
+            lossRate,
+            daysSinceLastPractice,
+          ),
+        )
+      }
     }
 
-    if (game.createdAt > entry.lastPlayed) {
-      entry.lastPlayed = game.createdAt;
+    // Sort: critical first, decaying second, healthy last
+    openingCards.sort((a, b) => {
+      const order = { critical: 0, decaying: 1, healthy: 2 }
+      return order[a.status] - order[b.status]
+    })
+
+    const todaysFocus = this.buildTodaysFocus(openingCards)
+    const weeklyPlan = this.buildWeeklyPlan(openingCards)
+
+    return {
+      todaysFocus,
+      weeklyPlan,
+      openingCards,
     }
   }
 
-  return Array.from(map.values());
-}
-
-    
-    async getInsights(username: string) {
-  const stats = await this.getUserOpeningStats(username);
-
-  return stats.map((s) => {
-    const status = this.classifyOpening(s);
-
-    return {
-      opening: s.opening,
-      losses: s.losses,
-      totalGames: s.totalGames,
-      status,
-    };
-  });
-}
-}
-
-
-
-function generateInsight(opening: string, losses: number, rank: number) {
-  if (rank === 0) {
-    return {
-      insight: `This is your weakest opening.`,
-      action: `Focus on practicing the first 5–8 moves of ${opening} daily.`,
-    };
+  private getDaysSince(date: Date): number {
+    const now = new Date()
+    const diff = now.getTime() - date.getTime()
+    return Math.floor(diff / (1000 * 60 * 60 * 24))
   }
 
-  if (losses > 10) {
-    return {
-      insight: `You frequently lose in this opening.`,
-      action: `Review common traps and play practice games.`,
-    };
+  private buildTodaysFocus(cards: OpeningCard[]): string {
+    const critical = cards.find((c) => c.status === 'critical')
+    if (critical) {
+      return `Focus on the ${critical.openingName} today — you are losing ${Math.round(critical.lossRate * 100)}% of these games.`
+    }
+
+    const decaying = cards.find((c) => c.status === 'decaying')
+    if (decaying) {
+      return `Review the ${decaying.openingName} today — you have not practiced it in ${decaying.daysSinceLastPractice} days.`
+    }
+
+    return 'All your openings are in good shape. Run a light review session to maintain your retention.'
   }
 
-  if (losses > 5) {
-    return {
-      insight: `This opening needs improvement.`,
-      action: `Practice key positions a few times a week.`,
-    };
-  }
+  private buildWeeklyPlan(cards: OpeningCard[]): string[] {
+    const plan: string[] = []
 
+    const criticalCards = cards.filter((c) => c.status === 'critical')
+    const decayingCards = cards.filter((c) => c.status === 'decaying')
+    const healthyCards = cards.filter((c) => c.status === 'healthy')
+
+    for (const card of criticalCards) {
+      plan.push(`Drill the ${card.openingName} daily — critical weakness.`)
+    }
+
+    for (const card of decayingCards) {
+      plan.push(`Review the ${card.openingName} once — retention is dropping.`)
+    }
+
+    for (const card of healthyCards) {
+      plan.push(`Skip the ${card.openingName} this week — no action needed.`)
+    }
+
+    return plan
+  }
+}
+
+type OpeningStatus = 'critical' | 'decaying' | 'healthy'
+
+interface OpeningCard {
+  openingName: string
+  ecoCode: string
+  status: OpeningStatus
+  losses: number
+  totalGames: number
+  lossRate: number
+  daysSinceLastPractice: number | null
+  insight: string
+  action: string
+}
+
+interface InsightSummary {
+  todaysFocus: string
+  weeklyPlan: string[]
+  openingCards: OpeningCard[]
+}
+
+export function isCritical(lossRate: number, totalGames: number): boolean {
+
+  return totalGames >= 5 && lossRate > 0.6
+}
+
+export function buildCriticalCard(
+  openingName: string,
+  ecoCode: string,
+  losses: number,
+  totalGames: number,
+  lossRate: number,
+  daysSinceLastPractice: number | null,
+): OpeningCard {
   return {
-    insight: `Not a major weakness yet.`,
-    action: `Maintain with occasional practice.`,
-  };
+    openingName,
+    ecoCode,
+    status: 'critical',
+    losses,
+    totalGames,
+    lossRate,
+    daysSinceLastPractice,
+    insight: `You are losing ${Math.round(lossRate * 100)}% of your ${openingName} games. This is your most urgent weakness.`,
+    action: `Practice the ${openingName} daily this week. Focus on the positions where you keep going wrong.`,
+  }
 }
 
+export function isDecaying(
+  daysSinceLastPractice: number | null,
+  lossRate: number,
+): boolean {
+  if (daysSinceLastPractice === null) return false
+  return daysSinceLastPractice >= 10 && lossRate <= 0.6
+}
+
+export function buildDecayingCard(
+  openingName: string,
+  ecoCode: string,
+  losses: number,
+  totalGames: number,
+  lossRate: number,
+  daysSinceLastPractice: number,
+): OpeningCard {
+  return {
+    openingName,
+    ecoCode,
+    status: 'decaying',
+    losses,
+    totalGames,
+    lossRate,
+    daysSinceLastPractice,
+    insight: `You have not practiced the ${openingName} in ${daysSinceLastPractice} days. Your retention is dropping.`,
+    action: `Review the ${openingName} once this week before it fades further.`,
+  }
+}
+
+export function buildHealthyCard(
+  openingName: string,
+  ecoCode: string,
+  losses: number,
+  totalGames: number,
+  lossRate: number,
+  daysSinceLastPractice: number | null,
+): OpeningCard {
+  return {
+    openingName,
+    ecoCode,
+    status: 'healthy',
+    losses,
+    totalGames,
+    lossRate,
+    daysSinceLastPractice,
+    insight: `Your ${openingName} is in good shape with a ${Math.round((1 - lossRate) * 100)}% win rate.`,
+    action: `Maintain with one light review session this week. No urgent action needed.`,
+  }
+}
