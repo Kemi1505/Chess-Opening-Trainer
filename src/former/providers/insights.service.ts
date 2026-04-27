@@ -24,15 +24,14 @@ export class InsightsService {
 
     // Group games by opening and calculate stats
     const openingMap = new Map
-      string,
-      {
-        ecoCode: string
-        losses: number
-        total: number
-        lastPlayedAt: Date
-      }
+        string,
+        {
+          ecoCode: string
+          losses: number
+          total: number
+          lastPlayedAt: Date
+        }
     >()
-
     for (const game of games) {
       const key = game.openingName!
       const existing = openingMap.get(key) ?? {
