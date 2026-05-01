@@ -5,8 +5,8 @@ import * as bcrypt from 'bcrypt'
 import { LoginUserDto } from './dto/login-user.dto';
 import { JwtService } from '@nestjs/jwt';
 import { Response } from 'express';
-import { cookiesOptions } from './cookies-options';
-import { UserModel } from './types/user-type';
+import { cookiesOptions } from './types/cookies-options';
+import { JwtPayLoad, UserModel } from './types/auth-type';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
@@ -53,6 +53,9 @@ export class AuthService {
             throw new BadRequestException('Invalid Email or Password')
         }
         //comapare password hash
+        if(!user.password){
+          throw new BadRequestException('Please Login with Google or Enter Password')
+        }
         const checkPassword = await bcrypt.compare(password, user.password)
         if(!checkPassword){
             throw new BadRequestException('Invalid Email or Password')
@@ -101,15 +104,14 @@ export class AuthService {
 
 
 
-    async verifyToken(refreshToken: string){
+    async verifyToken(refreshToken: string): Promise<JwtPayLoad>{
         try{
-            const payload = await this.jwtService.verifyAsync(refreshToken, {
+            const payload: JwtPayLoad = await this.jwtService.verifyAsync(refreshToken, {
                 secret: this.configService.get<string>('JWT_SECRET_KEY'),
             })
             return payload 
         }
-        catch(error){
-            console.log(error)
+        catch(error: any){
             throw new UnauthorizedException ('Invalid Token')
         }
     }
@@ -172,8 +174,8 @@ export class AuthService {
         user = await this.prisma.user.create({
             data: {
                 authType: 'GOOGLE',
-                username: details.username,
-                email: details.email,
+                username: details.username as string,
+                email: details.email as string,
                 password: ''
             },
             

@@ -3,7 +3,10 @@ import { AuthService } from './auth.service';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { type Response } from 'express';
+import { type Request } from 'express';
 import { GoogleAuthGuard } from './guards/google-guard';
+import { JwtPayLoad, type RequestWithUser } from './types/auth-type';
+import { JwtGuard } from './guards/jwt.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -42,19 +45,30 @@ export class AuthController {
             message: 'Redirecting to google...'}
     }
 
-    @Get('google/callback')
-    @UseGuards(GoogleAuthGuard)
-    async handleredirect(
-      @Req() req, 
-      @Res({ passthrough: true }) res: Response) {
-        const tokens = await this.authService.validateOAuthLogin(req.user, res)  
-      
-        return {
-            message: 'Login Successful',
-            tokens,
-        }
-    }
-
+  @Get('google/callback')
+  @UseGuards(GoogleAuthGuard)
+  async handleredirect(
+    @Req() req: RequestWithUser, 
+    @Res({ passthrough: true }) res: Response) {
+      const tokens = await this.authService.validateOAuthLogin(req.user, res)  
+    
+      return {
+          message: 'Login Successful',
+          tokens,
+      }
+  }
+  @Get('protected')
+  @UseGuards(JwtGuard)
+  protected(@Req() req: Request){
+    const user = req.user as JwtPayLoad
+    return{
+      message: "You have entered protected route",
+      info: {
+        id: user.sub,
+        name: user.username,
+        email: user.email
+    }}
+  }
 
 
 }

@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PassportStrategy } from "@nestjs/passport";
 import { Profile, Strategy, StrategyOptions, VerifyCallback } from "passport-google-oauth20";
@@ -20,10 +20,15 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
 
     async validate(accessToken: string, refreshToken: string, profile: Profile,  done: VerifyCallback,){
         const { name, emails } = profile;
+
+        if(!name || !emails){
+            return done (new BadRequestException('Name or Email missing in google account'))
+        }
+
         const user = {
-            email: emails?.[0]?.value,
-            firstName: name?.givenName,
-            lastName: name?.familyName,
+            email: emails[0].value,
+            firstName: name.givenName,
+            lastName: name.familyName,
             username: `${name.givenName}${name.familyName}`
         };
         
